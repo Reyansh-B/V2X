@@ -26,7 +26,7 @@ fprintf('Array size: %.2f m (%d antennas)\n\n', D, K);
 d_k_true = sqrt(x_ant.^2 + d_true^2 - 2*x_ant*d_true*sin(theta_true));
 phase_ideal = -2*pi/lambda * (d_k_true - d_true);
 
-SNR_dB = 5;              
+SNR_dB = 10;              
 SNR_linear = 10^(SNR_dB/10);
 phase_noise_std = sqrt(1 / (2 * SNR_linear));
 phase_measured = phase_ideal + phase_noise_std * randn(K, 1);
