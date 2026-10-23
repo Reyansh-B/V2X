@@ -1,132 +1,104 @@
-% platoon_digital_twin.m
-% Lightweight Kinematic Digital Twin for Platoon Control
-% Compares Perfect, BSM/GNSS, and Near-Field V2X Localization.
+% final_digital_twin.m
+% Paper-Quality Simulation: String Stability with Feedforward CACC
 
 clear; clc; close all;
 
 %% 1. Simulation Parameters
-dt = 0.01;            % Simulation time step (100 Hz)
-T_total = 15;         % Total time (seconds)
+dt = 0.01;            % 100 Hz
+T_total = 12;         
 t = 0:dt:T_total;
 N = length(t);
 
-% Vehicle dynamics (Point-mass kinematics)
-desired_gap = 5.0;    % meters
-kp = 1.5; kd = 2.0;   % CACC Controller gains
+desired_gap = 10.0;   
+kp = 1.5; kd = 2.0;   % CACC Feedback Gains
 
-% Leader profile (Emergency braking)
-v_leader = 20 * ones(1, N); % 72 km/h
-for i = 1:N
-    if t(i) > 5 && t(i) < 7
-        v_leader(i:end) = v_leader(i:end) - 5 * dt; % Brake at -5 m/s^2
-    elseif t(i) >= 7
-        v_leader(i:end) = max(v_leader(i:end), 10); % Hold at 36 km/h
-    end
+% Near-Field Physical Parameters
+fc = 5.9e9; lam = 299792458/fc;
+Ka = 41; x = (0:Ka-1)*(lam/2); x = x - mean(x);
+Mp = 2; Np = 120; eta = 10^(6/10);
+SNR_dB = 20; SNR_lin = 10^(SNR_dB/10);
+
+% GNSS/BSM Parameters
+sigma_gnss = 1.5; corr_time = 2.0; alpha = exp(-dt / corr_time); 
+
+%% 2. Generate Leader Profile
+v_leader = 25 * ones(1, N); 
+a_leader = zeros(1, N); 
+
+% Braking event
+idx_brake = (t > 4) & (t < 8);
+a_leader(idx_brake) = -4; % Brake at -4 m/s^2
+
+% Integrate acceleration to get velocity and position
+for k = 2:N
+    v_leader(k) = max(0, v_leader(k-1) + a_leader(k) * dt);
 end
-% Generate leader position
 x_leader = cumsum(v_leader) * dt;
 
-% Follower initial state
-x_follower = x_leader - desired_gap;
-v_follower = 20;
+%% 3. Simulation Setup
+x_f_bsm = zeros(1, N); v_f_bsm = zeros(1, N);
+x_f_nf  = zeros(1, N); v_f_nf  = zeros(1, N);
 
-% Measurement delays (in steps)
-delay_bsm = 0.10 / dt; % 100 ms (10 Hz)
-delay_nf  = 0.02 / dt; % 20 ms (50 Hz)
+x_f_bsm(1) = x_leader(1) - desired_gap; v_f_bsm(1) = 25;
+x_f_nf(1)  = x_leader(1) - desired_gap; v_f_nf(1)  = 25;
 
-% Noise standard deviations
-sigma_bsm = 1.5; % 1.5 meters (GNSS/BSM error)
-sigma_nf  = 0.01; % 1 cm (Decarli near-field error at 10m)
-
-%% 2. Storage Arrays
-gap_true = zeros(1, N);
-gap_measured_perfect = zeros(1, N);
-gap_measured_bsm = zeros(1, N);
-gap_measured_nf  = zeros(1, N);
-
-% For delay buffer
-buf_bsm = repmat(desired_gap, 1, ceil(delay_bsm)+1);
-buf_nf  = repmat(desired_gap, 1, ceil(delay_nf)+1);
-
-%% 3. Main Simulation Loop
+% Generate correlated GNSS noise
+gnss_err = zeros(1, N);
 for k = 2:N
-    % --- 1. True Physics Update ---
-    gap_true(k) = x_leader(k) - x_follower(k-1);
-    
-    % --- 2. Generate Measurements (The "Digital Twin" Channel) ---
-    % Perfect knowledge
-    gap_measured_perfect(k) = gap_true(k);
-    
-    % BSM/GNSS (High noise, High delay)
-    noisy_bsm = gap_true(k) + sigma_bsm * randn();
-    buf_bsm = [buf_bsm(2:end), noisy_bsm];
-    gap_measured_bsm(k) = buf_bsm(1); % Delayed reading
-    
-    % Near-Field V2X (Low noise, Low delay)
-    noisy_nf = gap_true(k) + sigma_nf * randn();
-    buf_nf = [buf_nf(2:end), noisy_nf];
-    gap_measured_nf(k) = buf_nf(1); % Delayed reading
-    
-    % --- 3. Controller (CACC) ---
-    % We run the controller 3 times for the 3 cases to see divergence
-    % (In a real system, only one controller runs)
-    
-    % Case A: Perfect
-    accel_perfect = kp*(gap_measured_perfect(k) - desired_gap) - kd*(v_leader(k) - v_follower);
-    
-    % Case B: BSM
-    % Note: We assume the follower gets leader velocity via BSM too
-    accel_bsm = kp*(gap_measured_bsm(k) - desired_gap) - kd*(v_leader(k) - v_follower);
-    
-    % Case C: Near-Field
-    accel_nf = kp*(gap_measured_nf(k) - desired_gap) - kd*(v_leader(k) - v_follower);
-    
-    % Update Follower Velocity and Position (Using BSM controller as the "active" one for physical truth)
-    % For plotting, we will simulate 3 separate follower trajectories:
-    v_f_perfect = v_follower + accel_perfect * dt;
-    v_f_bsm     = v_follower + accel_bsm * dt;
-    v_f_nf      = v_follower + accel_nf * dt;
-    
-    % We store the three trajectories
-    if k == 2
-        x_f_perfect = x_follower; x_f_bsm = x_follower; x_f_nf = x_follower;
-    end
-    
-    x_f_perfect = x_f_perfect + v_f_perfect * dt;
-    x_f_bsm     = x_f_bsm + v_f_bsm * dt;
-    x_f_nf      = x_f_nf + v_f_nf * dt;
-    
-    % For simplicity in this loop, just update the "true" follower with perfect dynamics
-    v_follower = v_f_perfect;
-    x_follower = x_f_perfect;
-    
-    % Calculate the gaps for the 3 cases relative to the leader
-    gap_perfect(k) = x_leader(k) - x_f_perfect;
-    gap_bsm(k)     = x_leader(k) - x_f_bsm;
-    gap_nf(k)      = x_leader(k) - x_f_nf;
+    gnss_err(k) = alpha * gnss_err(k-1) + sqrt(1-alpha^2) * sigma_gnss * randn();
 end
 
-%% 4. Plotting Results
-figure('Color','w','Position',[100 100 800 500]); hold on;
-plot(t, gap_perfect, 'k-', 'LineWidth', 2, 'DisplayName', 'Perfect Knowledge');
-plot(t, gap_bsm, 'r-', 'LineWidth', 2, 'DisplayName', 'BSM/GNSS (High Noise, Delayed)');
-plot(t, gap_nf, 'b-', 'LineWidth', 2, 'DisplayName', 'Near-Field V2X (Proposed)');
+%% 4. Control Loop with Feedforward
+for k = 2:N
+    % --- 1. BSM/GNSS Control ---
+    % Simulate a 1-second packet loss from t=6 to t=7
+    if t(k) > 6 && t(k) < 7
+        idx_b = max(1, k - 100); % Freeze on old data
+    else
+        idx_b = max(1, k - 10);  % 100ms delay
+    end
+    
+    x_lead_est_b = x_leader(idx_b) + gnss_err(k);
+    gap_b = x_lead_est_b - x_f_bsm(k-1);
+    
+    % True CACC: Feedback + Feedforward (leader acceleration)
+    acc_b = kp*(gap_b - desired_gap) + kd*(v_leader(idx_b) - v_f_bsm(k-1)) + a_leader(idx_b);
+    acc_b = max(-8, min(3, acc_b)); 
+    
+    v_f_bsm(k) = max(0, v_f_bsm(k-1) + acc_b * dt);
+    x_f_bsm(k) = x_f_bsm(k-1) + v_f_bsm(k) * dt;
+    
+    % --- 2. Near-Field V2X Control ---
+    idx_c = max(1, k - 2); % 20ms delay
+    true_gap_nf = x_leader(idx_c) - x_f_nf(k-1);
+    
+    bound = nearfieldBounds(0, true_gap_nf, x, Mp, Np, SNR_lin, eta, fc, 'paper');
+    sigma_nf_real = bound.PEB; 
+    
+    gap_c = true_gap_nf + sigma_nf_real * randn();
+    
+    % Near-Field gets perfectly synced acceleration via sidelink
+    acc_c = kp*(gap_c - desired_gap) + kd*(v_leader(idx_c) - v_f_nf(k-1)) + a_leader(k);
+    acc_c = max(-8, min(3, acc_c));
+    
+    v_f_nf(k) = max(0, v_f_nf(k-1) + acc_c * dt);
+    x_f_nf(k) = x_f_nf(k-1) + v_f_nf(k) * dt;
+end
 
-yline(0, 'k--', 'Collision', 'LineWidth', 1.5, 'LabelHorizontalAlignment', 'left');
+%% 5. Plotting
+gap_bsm = x_leader - x_f_bsm;
+gap_nf  = x_leader - x_f_nf;
+
+figure('Color','w','Position',[100 100 800 450]); hold on;
+plot(t, gap_bsm, 'r-', 'LineWidth', 2, 'DisplayName', 'BSM/GNSS (w/ 1s Packet Loss)');
+plot(t, gap_nf, 'b-', 'LineWidth', 2, 'DisplayName', 'Near-Field V2X (Dynamic CRLB)');
+yline(desired_gap, 'k--', 'LineWidth', 1.5, 'DisplayName', 'Desired Gap (10m)');
+
+% Highlight the packet loss window
+patch([6 7 7 6], [0 0 16 16], 'k', 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'DisplayName', 'BSM Packet Loss');
 grid on; box on;
 xlabel('Time [s]');
 ylabel('Inter-Vehicle Gap [m]');
-title('Digital Twin: Platooning Safety under Emergency Braking');
+title('CACC String Stability with Dynamic CRLB and BSM Packet Loss');
 legend('Location', 'best');
-ylim([-2, 10]);
-
-fprintf('Minimum gap (Perfect) : %.2f m\n', min(gap_perfect));
-fprintf('Minimum gap (BSM)     : %.2f m\n', min(gap_bsm));
-fprintf('Minimum gap (Near-Field): %.2f m\n', min(gap_nf));
-
-if min(gap_bsm) < 0
-    fprintf('Result: BSM/GNSS caused a CRASH.\n');
-end
-if min(gap_nf) > 0
-    fprintf('Result: Near-Field V2X prevented the crash.\n');
-end
+ylim([0, 16]);
