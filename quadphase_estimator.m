@@ -54,9 +54,9 @@ figure('Color','w'); semilogy(res(m,3), res(m,4), 'k--', 'LineWidth', 2); hold o
 semilogy(res(m,3), res(m,5), 'rs-', 'LineWidth', 1.5);
 semilogy(res(m,3), res(m,6), 'bo-', 'LineWidth', 1.5);
 grid on; xlabel('d [m]'); ylabel('Position RMSE [m]');
-legend('PEB (CRLB)', 'Quadratic LS (FPGA-friendly)', 'Quadratic LS + 1 ML refinement', 'Location', 'northwest');
+legend('PEB (CRLB)', 'Quadratic LS (FPGA-friendly)', 'Quadratic LS + ML refinement (fminsearch)', 'Location', 'northwest');
 title('Low-complexity near-field estimator, SNR = 20 dB, \theta = 0');
-print(gcf, 'quadphase_vs_peb.png', '-dpng', '-r150');
+print(gcf, 'quadphase_rmse_peb.png', '-dpng', '-r150');
 
 % ---------------- local functions ----------------
 function [th, d] = quadfit(meas, kc, kw, Apinv)

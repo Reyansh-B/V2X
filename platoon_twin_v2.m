@@ -67,7 +67,7 @@ yline(P.d0, 'k--', 'DisplayName', 'desired gap');
 patch([6 7 7 6], [0 0 20 20], 'k', 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'DisplayName', 'packet-loss burst');
 grid on; box on; ylim([0 16]); xlabel('Time [s]'); ylabel('Gap, last follower [m]');
 legend('Location', 'best'); title('6-vehicle CACC platoon, leader brakes at -4 m/s^2 (4-8 s)');
-print(gcf, 'platoon_v2_gap.png', '-dpng', '-r150');
+print(gcf, 'platoon_v2.png', '-dpng', '-r150');
 
 %% ---------------- local functions ----------------
 function s = snr_lin(d, lam)
